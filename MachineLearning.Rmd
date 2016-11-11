@@ -1,0 +1,71 @@
+---
+title: "Predicting what barbell lift was performed"
+author: "Ryan Friederich"
+date: "November 10, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Overview
+Using the Weight Lifting Exercise Dataset from the website [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har), I created a predictive model to determine the manner in which a barbell exercise was performed ("classe" variable).
+```{r libraries, include=FALSE}
+library(ggplot2)
+library(GGally)
+library(caret)
+library(AppliedPredictiveModeling)
+library(randomForest)
+library(e1071)
+library(foreach)
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+              destfile = "training.csv")
+training <- read.csv("training.csv")
+
+training2 <- training[,c(1:11,37:49,60:68,84:86,102,113:124,140,151:160)]
+training2 = training2[,-c(1:7)]
+inTrain <- createDataPartition(y=training2$classe, p=0.7, list = FALSE)
+trainingTrain <- training2[inTrain,]
+trainingTest <- training2[-inTrain,]
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+              destfile = "testing.csv")
+testing <- read.csv("testing.csv")
+
+testing2 <- testing[,c(1:11,37:49,60:68,84:86,102,113:124,140,151:160)]
+testing2 = testing2[,-c(1:7)]
+```
+### How the model was chosen
+After exploring the data using the str() and other functions, I found many of the variables contained NAs in most rows, I felt including them won't help the model so I left them out.
+```{r pressure, echo=TRUE}
+sum(is.na(training))
+```
+After removing the variables with NAs, I experimented with a few different models before going with a Parallel Random Forest model. I chose this for their notoriously accurate models, and the parallel processing aspect allowed faster processing. Since there are still a lot of predictors being included in the model, I had it do some pre-processing while it was training using the "center" and "scale" options to further help with accuracy. Of the mtry options for tuneGrid, 10 offered the best accuracy and much faster processing than letting the model train a few different options for the default.
+```{r model, echo=TRUE}
+rfParam <- expand.grid(mtry=10)
+control <- trainControl(method = "oob",
+                        classProbs = TRUE,
+                        allowParallel = TRUE)
+set.seed(711)
+modelFit <- train(classe ~ .,
+                  data = trainingTrain,
+                  method = "parRF",
+                  preProcess = c("center", "scale"),
+                  trControl = control,
+                  verbose = FALSE,
+                  tuneGrid = rfParam)
+modelFit
+```
+
+### Cross Validation
+Cross Validation was used here in two different ways: I first divided the training set into a sub training and test set for training the model, and within the model itself I used the "oob" method in the trainControl() function to allow the random forest model to use out-of-bag resampling while processing.
+
+### out of sample error
+```{r out of sample error, echo=FALSE}
+pred <- predict(modelFit, trainingTest)
+trainingTest$predRight <- pred==trainingTest$classe
+table(pred, trainingTest$classe)
+```
+I calculated the out of sample error by comparing the prediction results of the test set derived from the original training set to the classe variable of that test set, which is expected to be `r 1-(sum(pred==trainingTest$classe)/nrow(trainingTest))`.
